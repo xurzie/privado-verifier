@@ -1,0 +1,9 @@
+{
+  "ipfsGateway": "https://ipfs.io",
+  "verificationServerDomain": "localhost:8000",
+  "callbackPath": "/api/callback",
+  "requestIdPrefix": "auth-login",
+  "schemaContext": "https://schema.org",
+  "schemaType": "KYCAgeCredential",
+  "circuitId": "credentialAtomicQuerySig"
+}
