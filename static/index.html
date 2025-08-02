@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Login with PrivadoID</title>
+</head>
+<body>
+  <h1>Login with PrivadoID</h1>
+  <img id="qr" alt="Scan to login with PrivadoID" />
+  <script>
+    fetch('/api/sign-in')
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('qr').src = data.qr;
+      });
+  </script>
+</body>
+</html>
