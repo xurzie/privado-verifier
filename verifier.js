@@ -4,6 +4,7 @@ const { auth, resolver } = require("@iden3/js-iden3-auth");
 const getRawBody = require("raw-body");
 const cors = require("cors");
 const qrcode = require("qrcode");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const port = 8080;
@@ -21,24 +22,36 @@ app.post("/api/callback", async (req, res) => {
   await callback(req, res);
 });
 
+app.get("/api/status", (req, res) => {
+  const sessionId = req.query.sessionId;
+  if (!sessionId) return res.status(400).json({ error: "No sessionId provided" });
+
+  const result = verificationResults.get(sessionId);
+  if (result === undefined) {
+    return res.status(200).json({ verified: null }); // ожидаем
+  }
+
+  return res.status(200).json({ verified: result }); // true / false
+});
+
 app.listen(port, () => {
   console.log(`✅ Verifier running on http://localhost:${port}`);
 });
 
 // ======= КОНФІГ =======
-const NGROK_URL = "https://bc0538c49ab4.ngrok-free.app"; // ⚠️ заміни, коли новий
+const NGROK_URL = "https://96b42d28782f.ngrok-free.app"; // ⚠️ заміни кожен раз при запуску
 const CALLBACK_PATH = "/api/callback";
-const SESSION_ID = "1"; // як рядок
-const SIGNIN_PATH = "/api/sign-in";
+const SESSION_ID = "1";
 const AUDIENCE = "did:iden3:privado:main:2SeSki4yyingxX8GoYPAnFdNJKsj5v2HtaA3W5EHiU";
-const KEY_DIR = "../keys"; // де .zkey / wasm / verification_key.json
+const KEY_DIR = "D:/WORK/privado-verifier/keys/";
 
 const requestMap = new Map();
+const verificationResults = new Map(); // 🆕
 
 // ======= QR та auth-запит =======
 async function getAuthRequest(req, res) {
-  const callbackUri = `${NGROK_URL}${CALLBACK_PATH}?sessionId=${SESSION_ID}`;
-  const request = auth.createAuthorizationRequest("Login with PrivadoID", AUDIENCE, callbackUri);
+  const callbackUrl = `${NGROK_URL}${CALLBACK_PATH}?sessionId=${SESSION_ID}`;
+  const id = uuidv4();
 
   const proofRequest = {
     id: 1,
@@ -48,23 +61,17 @@ async function getAuthRequest(req, res) {
       type: "KYCAgeCredential",
       context: "https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld",
       credentialSubject: {
-        birthday: { $lt: 20070714 }, // старше 18
+        birthday: { $lt: 20070714 },
       },
     },
   };
 
+  const request = auth.createAuthorizationRequest("Login with PrivadoID", AUDIENCE, callbackUrl);
   request.body.scope = [...(request.body.scope || []), proofRequest];
 
-  // зберігаємо в Map
   requestMap.set(SESSION_ID, request);
 
-  // тепер генеруємо QR
-  const requestUri = `${NGROK_URL}${SIGNIN_PATH}`; // УВАГА: QR → sign-in
-  const encoded = encodeURIComponent(requestUri);
-  const iden3Uri = `iden3comm://?request_uri=${encoded}`;
-  const qr = await qrcode.toDataURL(iden3Uri);
-
-  res.status(200).json({ qr }); // фронт підставить
+  res.status(200).json({ ...request, sessionId: SESSION_ID });
 }
 
 // ======= Обробка callback =======
@@ -88,19 +95,25 @@ async function callback(req, res) {
     ),
   };
 
+  console.log("🛠️ circuitsDir =", KEY_DIR);
+  const authRequest = requestMap.get(sessionId);
+  console.log("🛠️ circuitId =", authRequest?.body?.scope?.[0]?.circuitId);
+
   const verifier = await auth.Verifier.newVerifier({
     stateResolver: resolvers,
-    circuitsDir: path.join(__dirname, KEY_DIR),
+    circuitsDir: KEY_DIR,
     ipfsGatewayURL: "https://ipfs.io",
   });
 
   try {
-    const authRequest = requestMap.get(sessionId);
-    const opts = { AcceptedStateTransitionDelay: 5 * 60 * 1000 }; // 5 хв
+    const opts = { AcceptedStateTransitionDelay: 5 * 60 * 1000 };
     const authResponse = await verifier.fullVerify(tokenStr, authRequest, opts);
+
+    verificationResults.set(sessionId, true); // ✅ успешно
     return res.status(200).json(authResponse);
   } catch (err) {
     console.error("💥 Verification error:", err);
+    verificationResults.set(sessionId, false); // ❌ ошибка
     return res.status(500).json({ error: err.message });
   }
 }
